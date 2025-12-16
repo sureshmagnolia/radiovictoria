@@ -3,207 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive Web Radio</title>
+    <title>Radio Debugger</title>
+    <link rel="icon" href="data:,">
     <style>
-        :root {
-            --primary: #6200ea;
-            --secondary: #03dac6;
-            --bg: #121212;
-            --surface: #1e1e1e;
-            --text: #e0e0e0;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .player-card {
-            background-color: var(--surface);
-            padding: 2rem;
-            border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            text-align: center;
-            width: 90%;
-            max-width: 400px;
-        }
-        h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
-        .status { 
-            color: #888; 
-            font-size: 0.9rem; 
-            margin-bottom: 1.5rem; 
-            min-height: 1.2em;
-        }
-        
-        /* Album Art / Visualizer Placeholder */
-        .visualizer {
-            width: 100%;
-            height: 150px;
-            background: linear-gradient(45deg, #333, #444);
-            border-radius: 12px;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
-        }
-
-        .controls button {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            font-size: 1rem;
-            border-radius: 50px;
-            cursor: pointer;
-            transition: transform 0.1s, background-color 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .controls button:hover { background-color: #7c4dff; }
-        .controls button:active { transform: scale(0.95); }
-        .controls button:disabled { background-color: #444; cursor: not-allowed; }
-
-        audio { width: 100%; margin-top: 20px; outline: none; }
-        
-        .track-list {
-            margin-top: 20px;
-            text-align: left;
-            max-height: 150px;
-            overflow-y: auto;
-            border-top: 1px solid #333;
-            padding-top: 10px;
-            font-size: 0.85rem;
-        }
-        .track-item { padding: 5px; color: #aaa; }
-        .track-item.active { color: var(--secondary); font-weight: bold; }
+        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; padding: 50px; }
+        .box { border: 1px solid #444; padding: 20px; display: inline-block; border-radius: 10px; }
+        button { padding: 10px 20px; font-size: 1.2rem; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; margin-top: 10px;}
+        button:disabled { background: #555; cursor: wait; }
+        #logs { text-align: left; background: #000; color: #0f0; padding: 10px; margin-top: 20px; height: 150px; overflow-y: scroll; font-family: monospace; font-size: 0.8rem; border: 1px solid #333; }
+        .error { color: #ff5555; }
     </style>
 </head>
 <body>
 
-    <div class="player-card">
-        <div class="visualizer">📻</div>
-        <h1 id="title">My Station</h1>
-        <div class="status" id="status">Connecting to Drive...</div>
-
-        <div class="controls">
-            <button id="playBtn" onclick="startRadio()" disabled>
-                <span>▶ Load & Play</span>
-            </button>
-            <button id="nextBtn" onclick="nextTrack()" style="display:none; background-color: #333;">
-                <span>⏭ Next</span>
-            </button>
-        </div>
-
-        <audio id="audioPlayer" controls style="display:none;"></audio>
+    <div class="box">
+        <h1>📻 Radio Tester</h1>
+        <h3 id="track-name">Initializing...</h3>
         
-        <div class="track-list" id="playlist-view"></div>
+        <audio id="audioPlayer" controls style="width: 300px; margin-top: 10px;"></audio>
+        <br>
+        <button id="playBtn" onclick="userClickedPlay()" disabled>▶ Start Radio</button>
     </div>
 
+    <div id="logs">System Log...<br></div>
+
     <script>
-        // --- CONFIGURATION ---
-        const API_URL = "https://script.google.com/macros/s/AKfycbx7q6J792WigaJ0gK3HnyRPs4NQI04h1dK5-fUxKBfcjXd97rtqckYKmLxy_SOOij_Zow/exec";
-        // ---------------------
+        // --- SETTINGS ---
+        const API_URL = "https://script.google.com/macros/s/AKfycbx7q6J792WigaJ0gK3HnyRPs4NQI04h1dK5-fUxKBfcjXd97rtqckYKmLxy_SOOij_Zow/exec"; 
+        // ----------------
 
         let playlist = [];
         let currentIndex = 0;
         const audio = document.getElementById('audioPlayer');
-        const statusEl = document.getElementById('status');
         const playBtn = document.getElementById('playBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const playlistView = document.getElementById('playlist-view');
-        const visualizer = document.querySelector('.visualizer');
+        const trackLabel = document.getElementById('track-name');
+        const logBox = document.getElementById('logs');
+
+        function log(msg, isError = false) {
+            const span = document.createElement('div');
+            span.innerText = "> " + msg;
+            if (isError) span.className = "error";
+            logBox.appendChild(span);
+            console.log(msg);
+        }
 
         // 1. Fetch Playlist
         async function fetchPlaylist() {
+            log("Connecting to Google Drive...");
             try {
                 const response = await fetch(API_URL);
                 const data = await response.json();
 
                 if (data.error) {
-                    statusEl.innerText = "Error: " + data.error;
+                    log("ERROR from Script: " + data.error, true);
                     return;
                 }
 
                 playlist = data;
-                
-                if(playlist.length > 0) {
-                    statusEl.innerText = `Found ${playlist.length} tracks. Ready.`;
-                    playBtn.disabled = false;
-                    renderPlaylistPreview();
+                log(`Success! Received ${playlist.length} tracks.`);
+
+                if (playlist.length === 0) {
+                    log("WARNING: Playlist is empty! Check Folder Content.", true);
+                    trackLabel.innerText = "Folder is Empty";
                 } else {
-                    statusEl.innerText = "Folder is empty.";
+                    log("First track: " + playlist[0].name);
+                    log("First URL: " + playlist[0].url); // Inspect this URL in console
+                    playBtn.disabled = false;
+                    playBtn.innerText = "▶ Start Radio";
+                    trackLabel.innerText = "Ready to Play";
+                    
+                    // Pre-load the first track (but don't play yet)
+                    audio.src = playlist[0].url;
+                    audio.load();
                 }
+
             } catch (error) {
-                console.error(error);
-                statusEl.innerText = "Failed to connect to Drive.";
+                log("NETWORK ERROR: " + error.message, true);
+                trackLabel.innerText = "Connection Failed";
             }
         }
 
-        // 2. Play Logic
+        // 2. Play Function (Must be triggered by button first)
+        function userClickedPlay() {
+            log("User clicked Play. Attempting to start...");
+            playTrack(currentIndex);
+        }
+
         function playTrack(index) {
+            if (playlist.length === 0) return;
+
+            // Loop logic
             if (index >= playlist.length) currentIndex = 0;
             else currentIndex = index;
 
             const track = playlist[currentIndex];
             
-            // UI Updates
-            statusEl.innerText = "Now Playing: " + track.name;
-            visualizer.innerText = "🎵";
-            playBtn.style.display = 'none';
-            nextBtn.style.display = 'inline-flex';
-            audio.style.display = 'block';
+            log(`Loading: ${track.name}`);
+            trackLabel.innerText = "Playing: " + track.name;
 
-            // Audio Updates
+            // CRITICAL: Check if URL is valid before playing
+            if (!track.url) {
+                log("ERROR: Track URL is missing!", true);
+                return;
+            }
+
             audio.src = track.url;
-            audio.play().catch(e => console.log("Autoplay blocked:", e));
+            
+            // Promise handling to catch the "NotSupportedError"
+            var playPromise = audio.play();
 
-            highlightTrack(currentIndex);
-        }
-
-        function startRadio() {
-            playTrack(0);
-        }
-
-        function nextTrack() {
-            playTrack(currentIndex + 1);
-        }
-
-        // 3. Render Small Playlist View
-        function renderPlaylistPreview() {
-            playlistView.innerHTML = "";
-            playlist.forEach((track, idx) => {
-                const div = document.createElement('div');
-                div.className = "track-item";
-                div.id = "track-" + idx;
-                div.innerText = (idx + 1) + ". " + track.name;
-                playlistView.appendChild(div);
-            });
-        }
-
-        function highlightTrack(idx) {
-            // Remove old active class
-            document.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
-            // Add new active class
-            const el = document.getElementById("track-" + idx);
-            if(el) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (playPromise !== undefined) {
+                playPromise.then(_ => {
+                    log("Audio started playing successfully.");
+                    playBtn.style.display = "none"; // Hide button after success
+                })
+                .catch(error => {
+                    log("PLAYBACK ERROR: " + error.name + " - " + error.message, true);
+                    if(error.name === "NotSupportedError") {
+                         log("HINT: The URL might be redirecting to a login page. Check Drive Permissions.", true);
+                    }
+                });
             }
         }
 
-        // 4. Event Listeners
+        // Auto-play next
         audio.addEventListener('ended', () => {
+            log("Track ended. Playing next...");
             playTrack(currentIndex + 1);
         });
 
-        // Initialize
+        // Error listener on the audio tag itself
+        audio.addEventListener('error', (e) => {
+            log("AUDIO TAG ERROR CODE: " + audio.error.code, true);
+            log("Meaning: 1=Aborted, 2=Network, 3=Decode, 4=SrcNotSupported", true);
+        });
+
+        // Init
         fetchPlaylist();
 
     </script>
