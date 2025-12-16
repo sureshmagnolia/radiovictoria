@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Radio Admin Console</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+        .container { display: flex; gap: 20px; }
+        .panel { background: white; padding: 20px; border-radius: 8px; flex: 1; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; }
+        .song-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; }
+        .song-item:hover { background: #e0e0e0; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+        .live-btn { background: red; color: white; border: none; font-weight: bold; }
+        .active { background: #d1e7dd; }
+        input[type="datetime-local"] { padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🎛️ Radio Admin Station</h1>
+    <div class="container">
+        
+        <div class="panel">
+            <h2>1. Drive Library</h2>
+            <button onclick="fetchLibrary()">🔄 Refresh from Drive</button>
+            <div id="library-list" style="height: 400px; overflow-y: scroll; border: 1px solid #ddd;">
+                Loading...
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>2. Broadcast Control</h2>
+            
+            <div style="background: #ddd; padding: 10px; margin-bottom: 20px; border-radius: 5px;">
+                <strong>Current Mode:</strong> <span id="current-mode">Loading...</span><br>
+                <strong>Now Playing:</strong> <span id="current-song">...</span>
+            </div>
+
+            <h3>Modes:</h3>
+            <button onclick="setMode('auto')">🤖 Play All (Auto-DJ)</button>
+            <button class="live-btn" onclick="goLive()">🎙️ GO LIVE (Mic)</button>
+            
+            <hr>
+            <h3>Scheduler:</h3>
+            <input type="datetime-local" id="schedule-time">
+            <button onclick="scheduleSelected()">Schedule Selected Track</button>
+            <div id="schedule-list"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, push } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        // --- PASTE YOUR FIREBASE CONFIG HERE ---
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            databaseURL: "YOUR_DATABASE_URL", // Ends in firebaseio.com
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "...",
+            appId: "..."
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        
+        // APPS SCRIPT URL (From previous step)
+        const APPS_SCRIPT_URL = "YOUR_APPS_SCRIPT_URL_HERE";
+        
+        let selectedTrack = null;
+        let library = [];
+
+        // 1. Fetch Files from Drive
+        window.fetchLibrary = async () => {
+            document.getElementById('library-list').innerHTML = "Fetching from Drive...";
+            const res = await fetch(APPS_SCRIPT_URL);
+            library = await res.json();
+            
+            // Save library to Firebase so clients can load it faster
+            set(ref(db, 'library'), library);
+            renderLibrary();
+        };
+
+        function renderLibrary() {
+            const list = document.getElementById('library-list');
+            list.innerHTML = "";
+            library.forEach(track => {
+                const div = document.createElement('div');
+                div.className = "song-item";
+                div.innerHTML = `<span>${track.name}</span> <button onclick="playNow('${track.url}', '${track.name}')">▶ Play Now</button>`;
+                div.onclick = (e) => {
+                    if(e.target.tagName !== 'BUTTON') {
+                        selectedTrack = track;
+                        alert("Selected: " + track.name);
+                    }
+                };
+                list.appendChild(div);
+            });
+        }
+
+        // 2. Play Immediately (Manual Mode)
+        window.playNow = (url, name) => {
+            set(ref(db, 'status'), {
+                mode: 'manual',
+                trackName: name,
+                trackUrl: url,
+                timestamp: Date.now()
+            });
+        };
+
+        // 3. Set Auto Mode
+        window.setMode = (mode) => {
+            set(ref(db, 'status/mode'), mode);
+        };
+
+        // 4. Go Live (External Stream)
+        window.goLive = () => {
+            const streamUrl = prompt("Enter your Live Stream URL (e.g., from Zeno.fm or Icecast):");
+            if(streamUrl) {
+                set(ref(db, 'status'), {
+                    mode: 'live',
+                    trackName: "🔴 Live Broadcast",
+                    trackUrl: streamUrl,
+                    timestamp: Date.now()
+                });
+            }
+        };
+
+        // 5. Schedule
+        window.scheduleSelected = () => {
+            const time = document.getElementById('schedule-time').value;
+            if(!selectedTrack || !time) return alert("Select a track and time!");
+            
+            const timestamp = new Date(time).getTime();
+            push(ref(db, 'schedule'), {
+                timestamp: timestamp,
+                track: selectedTrack
+            });
+            alert("Scheduled!");
+        };
+
+        // Monitor Status
+        onValue(ref(db, 'status'), (snapshot) => {
+            const data = snapshot.val();
+            if(data) {
+                document.getElementById('current-mode').innerText = data.mode;
+                document.getElementById('current-song').innerText = data.trackName;
+            }
+        });
+
+        // Initialize Library Preview
+        onValue(ref(db, 'library'), (snap) => {
+            if(snap.exists()) {
+                library = snap.val();
+                renderLibrary();
+            }
+        });
+    </script>
+</body>
+</html>
