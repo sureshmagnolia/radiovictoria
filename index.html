@@ -3,142 +3,204 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Debugger</title>
+    <title>Victoria Web Radio</title>
     <link rel="icon" href="data:,">
     <style>
-        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; padding: 50px; }
-        .box { border: 1px solid #444; padding: 20px; display: inline-block; border-radius: 10px; }
-        button { padding: 10px 20px; font-size: 1.2rem; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; margin-top: 10px;}
-        button:disabled { background: #555; cursor: wait; }
-        #logs { text-align: left; background: #000; color: #0f0; padding: 10px; margin-top: 20px; height: 150px; overflow-y: scroll; font-family: monospace; font-size: 0.8rem; border: 1px solid #333; }
-        .error { color: #ff5555; }
+        :root {
+            --primary: #ff5722;
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --text: #ffffff;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Roboto, Helvetica, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .radio-card {
+            background-color: var(--surface);
+            width: 90%;
+            max-width: 400px;
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            text-align: center;
+        }
+
+        .visualizer {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            animation: bounce 2s infinite ease-in-out;
+        }
+
+        h1 { margin: 0; font-size: 1.8rem; letter-spacing: 1px; }
+        p#track-name { color: #aaa; margin: 10px 0 30px; min-height: 1.5em; font-size: 0.95rem; }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(255, 87, 34, 0.4);
+        }
+
+        button:hover { transform: scale(1.05); background-color: #ff7043; }
+        button:active { transform: scale(0.95); }
+        button:disabled { background-color: #444; color: #888; cursor: not-allowed; box-shadow: none; }
+
+        .status-log {
+            margin-top: 20px;
+            font-size: 0.75rem;
+            color: #555;
+            font-family: monospace;
+        }
+
+        /* Audio element hidden but functional */
+        audio { width: 100%; margin-top: 20px; display: none; }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
     </style>
 </head>
 <body>
 
-    <div class="box">
-        <h1>📻 Radio Tester</h1>
-        <h3 id="track-name">Initializing...</h3>
+    <div class="radio-card">
+        <div class="visualizer">📻</div>
+        <h1>VICTORIA RADIO</h1>
+        <p id="track-name">Connecting to Station...</p>
+
+        <button id="playBtn" onclick="startRadio()" disabled>Loading...</button>
+
+        <audio id="audioPlayer" controls></audio>
         
-        <audio id="audioPlayer" controls style="width: 300px; margin-top: 10px;"></audio>
-        <br>
-        <button id="playBtn" onclick="userClickedPlay()" disabled>▶ Start Radio</button>
+        <div id="status" class="status-log">System Standby</div>
     </div>
 
-    <div id="logs">System Log...<br></div>
-
     <script>
-        // --- SETTINGS ---
-        const API_URL = "https://script.google.com/macros/s/AKfycbx7q6J792WigaJ0gK3HnyRPs4NQI04h1dK5-fUxKBfcjXd97rtqckYKmLxy_SOOij_Zow/exec"; 
-        // ----------------
+        // --- YOUR APPS SCRIPT URL ---
+        const API_URL = "https://script.google.com/macros/s/AKfycbx7q6J792WigaJ0gK3HnyRPs4NQI04h1dK5-fUxKBfcjXd97rtqckYKmLxy_SOOij_Zow/exec";
+        // ----------------------------
 
         let playlist = [];
         let currentIndex = 0;
         const audio = document.getElementById('audioPlayer');
         const playBtn = document.getElementById('playBtn');
         const trackLabel = document.getElementById('track-name');
-        const logBox = document.getElementById('logs');
+        const statusLog = document.getElementById('status');
+        const visualizer = document.querySelector('.visualizer');
 
-        function log(msg, isError = false) {
-            const span = document.createElement('div');
-            span.innerText = "> " + msg;
-            if (isError) span.className = "error";
-            logBox.appendChild(span);
+        function updateStatus(msg) {
             console.log(msg);
+            statusLog.innerText = msg;
         }
 
         // 1. Fetch Playlist
         async function fetchPlaylist() {
-            log("Connecting to Google Drive...");
             try {
+                updateStatus("Fetching library...");
                 const response = await fetch(API_URL);
                 const data = await response.json();
 
                 if (data.error) {
-                    log("ERROR from Script: " + data.error, true);
+                    trackLabel.innerText = "System Error";
+                    updateStatus("Script Error: " + data.error);
                     return;
                 }
 
                 playlist = data;
-                log(`Success! Received ${playlist.length} tracks.`);
 
-                if (playlist.length === 0) {
-                    log("WARNING: Playlist is empty! Check Folder Content.", true);
-                    trackLabel.innerText = "Folder is Empty";
-                } else {
-                    log("First track: " + playlist[0].name);
-                    log("First URL: " + playlist[0].url); // Inspect this URL in console
+                if (playlist.length > 0) {
+                    trackLabel.innerText = "Station Ready";
+                    playBtn.innerText = "▶ START RADIO";
                     playBtn.disabled = false;
-                    playBtn.innerText = "▶ Start Radio";
-                    trackLabel.innerText = "Ready to Play";
-                    
-                    // Pre-load the first track (but don't play yet)
-                    audio.src = playlist[0].url;
-                    audio.load();
+                    updateStatus(`Loaded ${playlist.length} tracks.`);
+                } else {
+                    trackLabel.innerText = "No Audio Found";
+                    updateStatus("Folder is empty or permissions wrong.");
                 }
 
             } catch (error) {
-                log("NETWORK ERROR: " + error.message, true);
+                console.error(error);
                 trackLabel.innerText = "Connection Failed";
+                updateStatus("Network/API Error.");
             }
         }
 
-        // 2. Play Function (Must be triggered by button first)
-        function userClickedPlay() {
-            log("User clicked Play. Attempting to start...");
-            playTrack(currentIndex);
-        }
-
+        // 2. Play Logic
         function playTrack(index) {
-            if (playlist.length === 0) return;
-
-            // Loop logic
             if (index >= playlist.length) currentIndex = 0;
             else currentIndex = index;
 
             const track = playlist[currentIndex];
-            
-            log(`Loading: ${track.name}`);
-            trackLabel.innerText = "Playing: " + track.name;
+            trackLabel.innerText = track.name;
+            updateStatus("Buffering...");
 
-            // CRITICAL: Check if URL is valid before playing
-            if (!track.url) {
-                log("ERROR: Track URL is missing!", true);
-                return;
+            // --- CLIENT SIDE FIX ---
+            // We append '&type=.mp3' to force browsers to treat it as audio
+            // This fixes the "Error 4" if the script wasn't updated
+            let streamUrl = track.url;
+            if (!streamUrl.includes("&t=")) {
+                streamUrl += "&t=.mp3"; 
             }
 
-            audio.src = track.url;
+            audio.src = streamUrl;
+            audio.style.display = "block"; // Show player controls
+            playBtn.style.display = "none"; // Hide big start button
             
-            // Promise handling to catch the "NotSupportedError"
-            var playPromise = audio.play();
+            const playPromise = audio.play();
 
             if (playPromise !== undefined) {
                 playPromise.then(_ => {
-                    log("Audio started playing successfully.");
-                    playBtn.style.display = "none"; // Hide button after success
+                    visualizer.innerText = "🎵";
+                    updateStatus("Broadcasting...");
                 })
                 .catch(error => {
-                    log("PLAYBACK ERROR: " + error.name + " - " + error.message, true);
+                    console.error("Play Error:", error);
+                    updateStatus("Playback Blocked: " + error.name);
                     if(error.name === "NotSupportedError") {
-                         log("HINT: The URL might be redirecting to a login page. Check Drive Permissions.", true);
+                        alert("Error: Google Drive denied access. \n\nPlease ensure the Drive MP3 files are shared as 'Anyone with the link'.");
                     }
                 });
             }
         }
 
-        // Auto-play next
+        function startRadio() {
+            playTrack(currentIndex);
+        }
+
+        // 3. Auto-Next
         audio.addEventListener('ended', () => {
-            log("Track ended. Playing next...");
             playTrack(currentIndex + 1);
         });
 
-        // Error listener on the audio tag itself
+        // 4. Error Handling
         audio.addEventListener('error', (e) => {
-            log("AUDIO TAG ERROR CODE: " + audio.error.code, true);
-            log("Meaning: 1=Aborted, 2=Network, 3=Decode, 4=SrcNotSupported", true);
+            const err = audio.error;
+            let msg = "Unknown Error";
+            if (err.code === 4) msg = "Source Not Supported (Permission Issue)";
+            if (err.code === 3) msg = "Decoding Error";
+            if (err.code === 2) msg = "Network Error";
+            
+            updateStatus("Audio Error: " + msg);
+            trackLabel.innerText = "⚠️ Load Failed";
         });
 
-        // Init
+        // Initialize
         fetchPlaylist();
 
     </script>
